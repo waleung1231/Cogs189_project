@@ -7,3 +7,5 @@ pandas>=1.5.0
 scikit-learn>=1.2.0
 matplotlib>=3.6.0
 pyserial>=3.5
+imbalanced-learn>=0.10.0
+xgboost>=1.7.0

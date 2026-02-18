@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual envs
+.venv/
+venv/
+
+# Local tooling
+.python-version
+
+# Generated outputs
+cache/
+data/
+*.npy
+*.pkl
+*.png
+
+# OS files
+.DS_Store
