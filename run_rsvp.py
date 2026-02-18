@@ -69,6 +69,12 @@ SAMPLING_RATE   = 250           # Cyton default
 
 RESPONSE_WINDOW_S = 0.600       # max RT counted as a hit (after onset)
 
+# Channel montage (OpenBCI Cyton 8-ch)
+# REF (SRB) at Cz, GND/BIAS near Fz
+#   Ch1=O1, Ch2=O2, Ch3=T5, Ch4=P3, Ch5=Pz, Ch6=P4, Ch7=T6, Ch8=Fz
+N_EEG_CHANNELS  = 8
+CH_LABELS       = ['O1', 'O2', 'T5', 'P3', 'Pz', 'P4', 'T6', 'Fz']
+
 SAVE_DIR = f'data/rsvp/sub-{SUBJECT:02d}/ses-{SESSION:02d}/'
 
 # Practice settings
@@ -187,7 +193,7 @@ if CYTON_IN:
     eeg_thread.start()
 
     # Accumulators for continuous raw data
-    raw_eeg       = np.zeros((8, 0), dtype=np.float32)
+    raw_eeg       = np.zeros((N_EEG_CHANNELS, 0), dtype=np.float32)
     raw_ts        = np.zeros((0,),   dtype=np.float64)
 
     def flush_queue():
@@ -205,7 +211,7 @@ if CYTON_IN:
 
 else:
     # ── DEMO / no-hardware mode ──────────────────
-    raw_eeg = np.zeros((8, 0), dtype=np.float32)
+    raw_eeg = np.zeros((N_EEG_CHANNELS, 0), dtype=np.float32)
     raw_ts  = np.zeros((0,),   dtype=np.float64)
 
     def flush_queue():
@@ -440,13 +446,13 @@ def _abort():
 def epoch_eeg(events):
     """
     Cut epochs from raw_eeg using onset_samp stored in each event.
-    Returns array of shape (n_events, 8, EPOCH_SAMPLES).
+    Returns array of shape (n_events, N_EEG_CHANNELS, EPOCH_SAMPLES).
     Events where there isn't enough data are filled with NaN.
     """
     import mne
     if not CYTON_IN:
         # Return random noise in demo mode
-        return np.random.randn(len(events), 8, EPOCH_SAMPLES).astype(np.float32)
+        return np.random.randn(len(events), N_EEG_CHANNELS, EPOCH_SAMPLES).astype(np.float32)
 
     flush_queue()
     # Bandpass filter the whole continuous recording once
@@ -455,7 +461,7 @@ def epoch_eeg(events):
         sfreq=SAMPLING_RATE, l_freq=1.0, h_freq=40.0, verbose=False
     )
 
-    epochs = np.full((len(events), 8, EPOCH_SAMPLES), np.nan, dtype=np.float32)
+    epochs = np.full((len(events), N_EEG_CHANNELS, EPOCH_SAMPLES), np.nan, dtype=np.float32)
     for i, ev in enumerate(events):
         start = ev['onset_samp'] - EPOCH_PRE_SAMP
         end   = start + EPOCH_SAMPLES
