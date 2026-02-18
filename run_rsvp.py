@@ -15,7 +15,7 @@
 #
 #  TIMING MODEL (per letter)
 #  -------------------------
-#  flash_duration  = 100 ms   (letter visible)
+#  flash_duration  = 300 ms   (letter visible)
 #  ISI             = 100–150 ms + ±30 ms jitter (blank screen)
 #  Total per stim  ≈ 200–280 ms  →  effective rate ≈ 5 Hz
 #  Session         ≈ 3 min  →  ~900 letters total
@@ -52,12 +52,12 @@ from psychopy.hardware import keyboard as kb
 SUBJECT         = 1
 SESSION         = 1
 TARGET_LETTER   = 'X'          # same for whole session + practice
-CYTON_IN        = True          # False = demo mode (no EEG hardware)
+CYTON_IN        = False        # False = demo mode (no EEG hardware)
 
 WIDTH, HEIGHT   = 1536, 960
 REFRESH_RATE    = 60.0          # Hz – adjust to your monitor
 
-FLASH_DURATION_S    = 0.100     # 100 ms
+FLASH_DURATION_S    = 0.300     # 300 ms
 ISI_BASE_S          = 0.125     # midpoint of 100–150 ms range
 ISI_JITTER_S        = 0.030     # ±30 ms uniform jitter
 SESSION_DURATION_S  = 180       # 3 minutes
@@ -282,7 +282,9 @@ def show_instructions(text, wait_key='space'):
     instruction_stim.text = text
     instruction_stim.draw()
     win.flip()
-    event.waitKeys(keyList=[wait_key, 'escape'])
+    keys = event.waitKeys(keyList=[wait_key, 'escape'])
+    if keys and 'escape' in keys:
+        _abort()
 
 
 # ──────────────────────────────────────────────
