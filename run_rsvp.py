@@ -86,6 +86,18 @@ EPOCH_SAMPLES   = EPOCH_PRE_SAMP + EPOCH_POST_SAMP
 LETTERS = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
 NON_TARGETS = [l for l in LETTERS if l != TARGET_LETTER]
 
+# Random fonts and colors for each flashing letter
+FONT_POOL = [
+    'Arial', 'Courier New', 'Georgia', 'Times New Roman',
+    'Verdana', 'Trebuchet MS', 'Palatino', 'Futura',
+    'Helvetica', 'Comic Sans MS', 'Impact', 'Lucida Console',
+]
+COLOR_POOL = [
+    'white', 'red', 'cyan', 'yellow', 'lime',
+    'orange', 'magenta', 'dodgerblue', 'springgreen',
+    'coral', 'violet', 'gold',
+]
+
 # ──────────────────────────────────────────────
 #  HELPER: build a letter sequence
 # ──────────────────────────────────────────────
@@ -313,7 +325,9 @@ def run_stream(sequence, is_practice=False):
         onset_wall = session_clock.getTime()
         onset_samp = current_sample_index()   # EEG sample at onset
 
-        letter_stim.text = letter
+        letter_stim.text  = letter
+        letter_stim.font  = random.choice(FONT_POOL)
+        letter_stim.color = random.choice(COLOR_POOL)
         letter_stim.draw()
         photosensor.fillColor = 'white'
         photosensor.draw()
