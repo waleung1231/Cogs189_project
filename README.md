@@ -35,6 +35,25 @@ python3 train_attention_classifier.py \
   --out_model cache/attention_model.pkl
 ```
 
+## Train model (focused-channel subset)
+```bash
+python3 train_attention_classifier.py \
+  --data_root data/rsvp \
+  --channels focused_core \
+  --out_model cache/attention_model_focused.pkl
+```
+
+`--channels` accepts preset names (`all`, `focused_core`, `drop_o1`) or explicit lists like `P3,Pz,P4,Fz`.
+
+## Compare channel sets quickly
+```bash
+python3 train_attention_classifier.py \
+  --data_root data/rsvp \
+  --channels focused_core \
+  --compare_channels drop_o1 \
+  --no_plot --no_tune
+```
+
 ## Tests
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'

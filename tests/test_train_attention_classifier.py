@@ -40,6 +40,16 @@ class TrainClassifierTests(unittest.TestCase):
         )
         tac.validate_metadata_schema(meta)
 
+    def test_parse_channel_spec_preset(self):
+        _, idx, names = tac._parse_channel_spec("focused_core")
+        self.assertEqual(names, ["P3", "Pz", "P4", "Fz"])
+        self.assertEqual(idx, [3, 4, 5, 7])
+
+    def test_parse_channel_spec_numeric_and_name(self):
+        _, idx, names = tac._parse_channel_spec("4,Pz,8")
+        self.assertEqual(names, ["P3", "Pz", "Fz"])
+        self.assertEqual(idx, [3, 4, 7])
+
 
 if __name__ == "__main__":
     unittest.main()

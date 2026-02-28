@@ -61,6 +61,13 @@ RECOMMENDED_META_COLUMNS = {
     "quality_flag",
 }
 
+ALL_CHANNEL_NAMES = ["O1", "O2", "T5", "P3", "Pz", "P4", "T6", "Fz"]
+CHANNEL_PRESETS = {
+    "all": ALL_CHANNEL_NAMES,
+    "focused_core": ["P3", "Pz", "P4", "Fz"],
+    "drop_o1": ["O2", "T5", "P3", "Pz", "P4", "T6", "Fz"],
+}
+
 
 def bandpower(epoch_1ch, sfreq, band):
     f, psd = spsig.welch(epoch_1ch, fs=sfreq, nperseg=min(256, len(epoch_1ch)))
@@ -251,6 +258,58 @@ def assign_labels(metadata_df):
     return target
 
 
+def _parse_channel_spec(spec):
+    if spec is None:
+        spec = "all"
+
+    normalized = spec.strip().lower()
+    if normalized in CHANNEL_PRESETS:
+        names = CHANNEL_PRESETS[normalized]
+        indices = [ALL_CHANNEL_NAMES.index(ch) for ch in names]
+        return normalized, indices, names
+
+    tokens = [t.strip() for t in spec.split(",") if t.strip()]
+    if not tokens:
+        raise ValueError("Empty channel specification")
+
+    name_to_idx = {name.upper(): i for i, name in enumerate(ALL_CHANNEL_NAMES)}
+    indices = []
+    names = []
+
+    for tok in tokens:
+        upper = tok.upper()
+        idx = None
+
+        if upper in name_to_idx:
+            idx = name_to_idx[upper]
+        elif upper.startswith("CH") and upper[2:].isdigit():
+            idx = int(upper[2:]) - 1
+        elif tok.isdigit():
+            idx = int(tok) - 1
+
+        if idx is None:
+            raise ValueError(
+                f"Unknown channel '{tok}'. Use channel names {ALL_CHANNEL_NAMES}, "
+                "1-based indices, or CH1..CH8."
+            )
+        if idx < 0 or idx >= len(ALL_CHANNEL_NAMES):
+            raise ValueError(f"Channel index out of range: {tok}")
+        if idx in indices:
+            continue
+
+        indices.append(idx)
+        names.append(ALL_CHANNEL_NAMES[idx])
+
+    if not indices:
+        raise ValueError("No valid channels selected")
+
+    return spec, indices, names
+
+
+def _format_channel_spec(names):
+    return ",".join(names)
+
+
 def _extract_session_id(data_dir):
     parts = os.path.normpath(data_dir).split(os.sep)
     sub = next((p for p in parts if p.startswith("sub-")), "sub-unknown")
@@ -258,7 +317,7 @@ def _extract_session_id(data_dir):
     return f"{sub}_{ses}"
 
 
-def _load_one_session(data_dir):
+def _load_one_session(data_dir, channel_indices=None):
     epochs_path = os.path.join(data_dir, "eeg_epochs.npy")
     meta_path = os.path.join(data_dir, "metadata.csv")
 
@@ -270,6 +329,8 @@ def _load_one_session(data_dir):
     target_indices = target_df["index"].astype(int).values
 
     target_epochs = epochs[target_indices]
+    if channel_indices is not None:
+        target_epochs = target_epochs[:, channel_indices, :]
     labels = target_df["zoned_out"].values.astype(int)
 
     valid_mask = ~np.any(np.isnan(target_epochs.reshape(len(target_epochs), -1)), axis=1)
@@ -289,7 +350,7 @@ def _discover_session_dirs(data_root):
     return sorted([d for d in glob.glob(pattern) if os.path.isdir(d)])
 
 
-def _load_dataset(data_dir=None, data_root=None):
+def _load_dataset(data_dir=None, data_root=None, channel_indices=None):
     if data_root:
         session_dirs = _discover_session_dirs(data_root)
         if not session_dirs:
@@ -298,7 +359,7 @@ def _load_dataset(data_dir=None, data_root=None):
         all_x, all_y, groups = [], [], []
         for session_dir in session_dirs:
             print(f"[LOAD] {session_dir}")
-            x_s, y_s = _load_one_session(session_dir)
+            x_s, y_s = _load_one_session(session_dir, channel_indices=channel_indices)
             if len(y_s) == 0:
                 print("  [WARN] No valid labeled target trials, skipping session")
                 continue
@@ -318,7 +379,7 @@ def _load_dataset(data_dir=None, data_root=None):
         raise ValueError("Either data_dir or data_root must be provided")
 
     print(f"[LOAD] {data_dir}")
-    x_s, y_s = _load_one_session(data_dir)
+    x_s, y_s = _load_one_session(data_dir, channel_indices=channel_indices)
     print(f"  [OK] X={x_s.shape}, classes={dict(zip(*np.unique(y_s, return_counts=True)))}")
     return x_s, y_s, None, [data_dir]
 
@@ -440,8 +501,67 @@ def _count_param_combinations(param_dict):
     return count
 
 
-def train(data_dir, model_out_path, plot=True, data_root=None, tune_hyperparams=True):
-    X, y, groups, used_sessions = _load_dataset(data_dir=data_dir, data_root=data_root)
+def compare_channel_sets(data_dir=None, data_root=None, channel_specs=None):
+    if not channel_specs:
+        return
+
+    print("\n[COMPARE] Channel-set comparison (LDA balanced accuracy)")
+    seen = set()
+    for spec in channel_specs:
+        try:
+            label, idx, names = _parse_channel_spec(spec)
+        except ValueError as e:
+            print(f"  {spec}: [SKIP] {e}")
+            continue
+
+        key = tuple(idx)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        try:
+            X, y, groups, _ = _load_dataset(
+                data_dir=data_dir,
+                data_root=data_root,
+                channel_indices=idx,
+            )
+            cv_name, cv, cv_groups = _build_cv(y, groups=groups)
+            if cv is None:
+                print(f"  {label} ({_format_channel_spec(names)}): [SKIP] Not enough CV data")
+                continue
+            pipe = Pipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    ("selector", SelectKBest(mutual_info_classif, k="all")),
+                    ("clf", LinearDiscriminantAnalysis()),
+                ]
+            )
+            scores = cross_val_score(pipe, X, y, cv=cv, groups=cv_groups, scoring="balanced_accuracy")
+            print(
+                f"  {label} ({_format_channel_spec(names)}): "
+                f"{scores.mean():.3f} +- {scores.std():.3f} ({cv_name})"
+            )
+        except Exception as e:
+            print(f"  {label} ({_format_channel_spec(names)}): [SKIP] {e}")
+
+
+def train(
+    data_dir,
+    model_out_path,
+    plot=True,
+    data_root=None,
+    tune_hyperparams=True,
+    channel_indices=None,
+    channel_names=None,
+):
+    X, y, groups, used_sessions = _load_dataset(
+        data_dir=data_dir,
+        data_root=data_root,
+        channel_indices=channel_indices,
+    )
+
+    if channel_names is None:
+        channel_names = ALL_CHANNEL_NAMES
 
     if len(np.unique(y)) < 2:
         print("[WARN] Only one class in labels. Need more balanced data.")
@@ -454,6 +574,7 @@ def train(data_dir, model_out_path, plot=True, data_root=None, tune_hyperparams=
         return
 
     print(f"\n[DATA] Feature matrix: {X.shape}")
+    print(f"[DATA] Channels: {_format_channel_spec(channel_names)}")
     print(f"[CV] Using {cv_name}")
     if groups is not None:
         print(f"[CV] Groups: {len(np.unique(groups))} session(s)")
@@ -520,7 +641,8 @@ def train(data_dir, model_out_path, plot=True, data_root=None, tune_hyperparams=
             {
                 "model": best_pipe,
                 "model_name": best_name,
-                "feature_names": _feature_names(),
+                "feature_names": _feature_names(channel_names=channel_names),
+                "channels": channel_names,
                 "cv_results": cv_results,
                 "cv_strategy": cv_name,
                 "sessions": used_sessions,
@@ -538,14 +660,11 @@ def train(data_dir, model_out_path, plot=True, data_root=None, tune_hyperparams=
 
     if plot:
         out_dir = data_root if data_root else data_dir
-        _plot_results(cv_results, best_pipe, best_name, out_dir)
+        _plot_results(cv_results, best_pipe, best_name, out_dir, channel_names=channel_names)
 
 
-CHANNEL_NAMES = ["T5", "P3", "Pz", "P4", "T6", "O1", "O2", "REF"]
-
-
-def _feature_names(n_ch=8):
-    ch = CHANNEL_NAMES[:n_ch]
+def _feature_names(channel_names=None):
+    ch = channel_names if channel_names is not None else ALL_CHANNEL_NAMES
     return [
         "theta_mean",
         "alpha_mean",
@@ -571,7 +690,7 @@ def _feature_names(n_ch=8):
     ] + [f"alpha_{c}" for c in ch] + [f"theta_{c}" for c in ch] + [f"beta_{c}" for c in ch] + [f"pre_alpha_{c}" for c in ch]
 
 
-def _plot_results(cv_results, best_pipe, best_name, save_dir):
+def _plot_results(cv_results, best_pipe, best_name, save_dir, channel_names=None):
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
     ax = axes[0]
@@ -591,7 +710,7 @@ def _plot_results(cv_results, best_pipe, best_name, save_dir):
         clf = best_pipe.named_steps["clf"]
         if hasattr(clf, "feature_importances_"):
             imp = clf.feature_importances_
-            fnames = _feature_names()[: len(imp)]
+            fnames = _feature_names(channel_names=channel_names)[: len(imp)]
             idx = np.argsort(imp)[::-1][:15]
             ax2.barh([fnames[i] for i in idx[::-1]], imp[idx[::-1]], color="teal", alpha=0.8)
             ax2.set_xlabel("Importance")
@@ -631,7 +750,39 @@ if __name__ == "__main__":
     parser.add_argument("--out_model", default="cache/attention_model.pkl", help="Model output path")
     parser.add_argument("--no_plot", action="store_true", help="Skip saving the results plot")
     parser.add_argument("--no_tune", action="store_true", help="Skip hyperparameter tuning")
+    parser.add_argument(
+        "--channels",
+        default="all",
+        help=(
+            "Channels to use: preset ('all', 'focused_core', 'drop_o1') or "
+            "comma-separated names/indices (e.g. 'P3,Pz,P4,Fz' or '4,5,6,8')"
+        ),
+    )
+    parser.add_argument(
+        "--compare_channels",
+        action="append",
+        default=[],
+        help="Optional channel specs to compare quickly with LDA CV. Can be repeated.",
+    )
+    parser.add_argument(
+        "--compare_presets",
+        action="store_true",
+        help="Compare default presets: focused_core vs drop_o1 vs all",
+    )
     args = parser.parse_args()
+
+    _, channel_indices, channel_names = _parse_channel_spec(args.channels)
+
+    compare_specs = list(args.compare_channels)
+    if args.compare_presets:
+        compare_specs = ["focused_core", "drop_o1", "all"] + compare_specs
+
+    if compare_specs:
+        compare_channel_sets(
+            data_dir=args.data_dir,
+            data_root=args.data_root,
+            channel_specs=compare_specs,
+        )
 
     train(
         data_dir=args.data_dir,
@@ -639,4 +790,6 @@ if __name__ == "__main__":
         plot=not args.no_plot,
         data_root=args.data_root,
         tune_hyperparams=not args.no_tune,
+        channel_indices=channel_indices,
+        channel_names=channel_names,
     )
