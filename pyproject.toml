@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "brainflow>=5.1.2",
+    "imbalanced-learn>=0.14.1",
     "matplotlib>=3.6.0",
     "mne>=1.0.0",
     "numpy>=1.23.0",
