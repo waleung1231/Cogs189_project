@@ -77,7 +77,7 @@ EPOCH_PRE_S = 0.200
 EPOCH_PRE_SAMP = round(EPOCH_PRE_S * SAMPLING_RATE)
 
 # Must match run_rsvp.py channel order
-CHANNEL_NAMES = ["O1", "O2", "T5", "P3", "Pz", "P4", "T6", "Fz"]
+CHANNEL_NAMES = ["O1", "O2", "T5", "P3", "Pz", "P4", "T6", "REF"]
 
 # Metadata schema
 REQUIRED_META_COLUMNS = {"index", "is_target", "response", "rt"}
@@ -193,10 +193,12 @@ def extract_features(epochs, sfreq=SAMPLING_RATE, pre_samp=EPOCH_PRE_SAMP):
         else:
             peak_lat = 0.5
 
-        if n_ch >= 5:
+        if n_ch >= 6:
             # Posterior alpha asymmetry proxy from left-right parietal channels.
+            # P3 is now at index 3, P4 is now at index 5
             paa = float(np.log(alpha_pows[3] + 1e-10) - np.log(alpha_pows[5] + 1e-10))
         elif n_ch >= 2:
+            # Use O1 (index 0) and O2 (index 1) for asymmetry when fewer channels
             paa = float(np.log(alpha_pows[0] + 1e-10) - np.log(alpha_pows[1] + 1e-10))
         else:
             paa = 0.0
@@ -339,6 +341,9 @@ def _load_one_session(data_dir):
     epochs = np.load(epochs_path, allow_pickle=True)
     meta = pd.read_csv(meta_path)
     validate_metadata_schema(meta)
+    
+    # Keep all channels in the current 8-channel format.
+    # NOTE: legacy 7-channel datasets (O2, T5, P3, Pz, P4, T6, Fz) are loaded as-is.
 
     target_df = assign_labels(meta).dropna(subset=["zoned_out"])
     target_indices = target_df["index"].astype(int).values

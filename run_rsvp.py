@@ -53,6 +53,7 @@ SUBJECT         = 1
 SESSION         = 1
 TARGET_LETTER   = 'X'          # same for whole session + practice
 CYTON_IN        = False        # False = demo mode (no EEG hardware)
+ENABLE_PRACTICE = True         # set False to skip the practice block
 
 WIDTH, HEIGHT   = 1536, 960
 REFRESH_RATE    = 60.0          # Hz – adjust to your monitor
@@ -71,15 +72,17 @@ RESPONSE_WINDOW_S = 0.600       # max RT counted as a hit (after onset)
 
 # Channel montage (OpenBCI Cyton 8-ch)
 # REF (SRB) at Cz, GND/BIAS near Fz
-#   Ch1=O1, Ch2=O2, Ch3=T5, Ch4=P3, Ch5=Pz, Ch6=P4, Ch7=T6, Ch8=Fz
+#   Ch1=O1, Ch2=O2, Ch3=T5, Ch4=P3, Ch5=Pz, Ch6=P4, Ch7=T6, Ch8=REF
 N_EEG_CHANNELS  = 8
-CH_LABELS       = ['O1', 'O2', 'T5', 'P3', 'Pz', 'P4', 'T6', 'Fz']
+CH_LABELS       = ['O1', 'O2', 'T5', 'P3', 'Pz', 'P4', 'T6', 'REF']
 
 SAVE_DIR = f'data/rsvp/sub-{SUBJECT:02d}/ses-{SESSION:02d}/'
 
 # Practice settings
 PRACTICE_N_TARGETS  = 12        # ~10-15 target appearances in practice
 PRACTICE_PROPORTION = 0.20
+PRACTICE_COUNTDOWN  = 3
+SESSION_COUNTDOWN   = 5
 
 # ──────────────────────────────────────────────
 #  DERIVED CONSTANTS
@@ -544,32 +547,45 @@ show_instructions(
 )
 
 # ── PRACTICE ─────────────────────────────────
-show_instructions(
-    f"PRACTICE\n\n"
-    f"This is a short practice run. You will see live feedback.\n"
-    f"Green ✓ = correct,  Red MISSED = you missed the target,  Orange Wrong! = false alarm\n\n"
-    f"Target:  {TARGET_LETTER}\n\n"
-    f"Press SPACE to start practice.",
-    wait_key='space'
-)
+if ENABLE_PRACTICE:
+    show_instructions(
+        f"PRACTICE\n\n"
+        f"This is a short practice run. You will see live feedback.\n"
+        f"Green ✓ = correct,  Red MISSED = you missed the target,  Orange Wrong! = false alarm\n\n"
+        f"Target:  {TARGET_LETTER}\n\n"
+        f"Press SPACE to start practice.",
+        wait_key='space'
+    )
 
-practice_seq   = make_practice_sequence(seed=99)
-practice_events = run_stream(practice_seq, is_practice=True)
-p_hit_rate, p_rt = summarise(practice_events, label='Practice')
+    practice_seq   = make_practice_sequence(seed=99)
+    practice_events = run_stream(practice_seq, is_practice=True)
+    p_hit_rate, p_rt = summarise(practice_events, label='Practice')
 
-show_instructions(
-    f"Practice complete!\n\n"
-    f"Hit rate : {p_hit_rate*100:.0f}%\n"
-    f"Mean RT  : {p_rt:.0f} ms\n\n"
-    f"The real session is about to begin ({SESSION_DURATION_S//60} minutes).\n"
-    f"There will be no feedback during the real task.\n\n"
-    f"Stay as still as possible to keep the EEG signal clean.\n\n"
-    f"Press SPACE when you're ready.",
-    wait_key='space'
-)
+    show_instructions(
+        f"Practice complete!\n\n"
+        f"Hit rate : {p_hit_rate*100:.0f}%\n"
+        f"Mean RT  : {p_rt:.0f} ms\n\n"
+        f"The real session is about to begin ({SESSION_DURATION_S//60} minutes).\n"
+        f"There will be no feedback during the real task.\n\n"
+        f"Stay as still as possible to keep the EEG signal clean.\n\n"
+        f"Press SPACE when you're ready.",
+        wait_key='space'
+    )
+    countdown_seconds = PRACTICE_COUNTDOWN
+else:
+    show_instructions(
+        f"Practice is disabled.\n\n"
+        f"The real session is about to begin ({SESSION_DURATION_S//60} minutes).\n"
+        f"There will be no feedback during the task.\n\n"
+        f"Stay as still as possible to keep the EEG signal clean.\n\n"
+        f"A short countdown will begin after this screen.\n\n"
+        f"Press SPACE when you're ready.",
+        wait_key='space'
+    )
+    countdown_seconds = SESSION_COUNTDOWN
 
 # ── Countdown ────────────────────────────────
-for n in [3, 2, 1]:
+for n in range(countdown_seconds, 0, -1):
     instruction_stim.text = str(n)
     instruction_stim.draw()
     win.flip()

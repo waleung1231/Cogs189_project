@@ -24,7 +24,7 @@ from scipy import signal as spsig
 #  CONFIGURATION
 # ─────────────────────────────────────────────────────────────
 SAMPLING_RATE = 250  # Hz
-CH_LABELS = ['O1', 'O2', 'T5', 'P3', 'Pz', 'P4', 'T6', 'Fz']
+CH_LABELS = ['O1', 'O2', 'T5', 'P3', 'Pz', 'P4', 'T6', 'REF']
 EPOCH_PRE_S = 0.200
 EPOCH_POST_S = 0.800
 
