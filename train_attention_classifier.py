@@ -715,8 +715,8 @@ def _save_importance_plot(feature_importance_df, channel_importance_df, out_path
 # ------------------------------------------------------------
 def train(
     data_dir,
-    model_out_path,
-    report_dir,
+    model_out_path=None,
+    report_dir=None,
     plot=True,
     data_root=None,
     tune_hyperparams=True,
@@ -827,84 +827,89 @@ def train(
     print("\n[TOP CHANNELS]")
     print(channel_imp_df.head(5).round(6).to_string(index=False))
 
-    os.makedirs(os.path.dirname(model_out_path) or ".", exist_ok=True)
-    with open(model_out_path, "wb") as f:
-        pickle.dump(
-            {
-                "model": selected_model,
-                "model_name": selected_name,
-                "selected_by": save_model_by,
+    if model_out_path is None and report_dir is None:
+        print("[INFO] Caching is disabled; skipping saved model and report files.")
+    else:
+        if model_out_path is not None:
+            os.makedirs(os.path.dirname(model_out_path) or ".", exist_ok=True)
+            with open(model_out_path, "wb") as f:
+                pickle.dump(
+                    {
+                        "model": selected_model,
+                        "model_name": selected_name,
+                        "selected_by": save_model_by,
+                        "best_performance_model": best_perf_name,
+                        "best_utilization_model": best_util_name,
+                        "feature_names": feature_names,
+                        "cv_strategy": cv_name,
+                        "sessions": used_sessions,
+                        "model_metrics": results_df.to_dict(orient="index"),
+                    },
+                    f,
+                )
+            print(f"\n[SAVED] Model -> {model_out_path}")
+
+        if report_dir is not None:
+            os.makedirs(report_dir, exist_ok=True)
+            metrics_csv = os.path.join(report_dir, "model_metrics.csv")
+            recalls_csv = os.path.join(report_dir, "class_recalls.csv")
+            top_feat_csv = os.path.join(report_dir, "top_features.csv")
+            channel_csv = os.path.join(report_dir, "channel_importance.csv")
+            report_json_path = os.path.join(report_dir, "training_report.json")
+
+            comparison_plot = os.path.join(report_dir, "model_comparison.png")
+            importance_plot = os.path.join(report_dir, "feature_importance.png")
+            confusion_plot = os.path.join(report_dir, "best_model_confusion.png")
+
+            results_df.to_csv(metrics_csv, index_label="model")
+            results_df[["focused_recall", "zoned_out_recall"]].to_csv(recalls_csv, index_label="model")
+            feature_imp_df.to_csv(top_feat_csv, index=False)
+            channel_imp_df.to_csv(channel_csv, index=False)
+
+            report_payload = {
+                "selected_model": selected_name,
+                "save_model_by": save_model_by,
                 "best_performance_model": best_perf_name,
                 "best_utilization_model": best_util_name,
-                "feature_names": feature_names,
                 "cv_strategy": cv_name,
                 "sessions": used_sessions,
-                "model_metrics": results_df.to_dict(orient="index"),
-            },
-            f,
-        )
-    print(f"\n[SAVED] Model -> {model_out_path}")
+                "feature_matrix_shape": [int(X.shape[0]), int(X.shape[1])],
+                "label_distribution": {
+                    "focused": int(np.sum(y == 0)),
+                    "zoned_out": int(np.sum(y == 1)),
+                },
+                "selected_model_class_behavior": {
+                    "focused_recall": focus_rec,
+                    "zoned_out_recall": zoned_rec,
+                    "better_at": better_class,
+                },
+                "top_features": feature_imp_df.head(20).to_dict(orient="records"),
+                "top_channels": channel_imp_df.head(8).to_dict(orient="records"),
+                "model_metrics": json.loads(results_df.to_json(orient="index")),
+                "best_model_confusion_matrix": confusions[selected_name].tolist(),
+                "selected_model_classification_report": class_reports[selected_name],
+            }
 
-    os.makedirs(report_dir, exist_ok=True)
-    metrics_csv = os.path.join(report_dir, "model_metrics.csv")
-    recalls_csv = os.path.join(report_dir, "class_recalls.csv")
-    top_feat_csv = os.path.join(report_dir, "top_features.csv")
-    channel_csv = os.path.join(report_dir, "channel_importance.csv")
-    report_json_path = os.path.join(report_dir, "training_report.json")
+            with open(report_json_path, "w", encoding="utf-8") as f:
+                json.dump(report_payload, f, indent=2)
 
-    comparison_plot = os.path.join(report_dir, "model_comparison.png")
-    importance_plot = os.path.join(report_dir, "feature_importance.png")
-    confusion_plot = os.path.join(report_dir, "best_model_confusion.png")
+            if plot:
+                _save_model_comparison_plot(results_df, comparison_plot)
+                _save_importance_plot(feature_imp_df, channel_imp_df, importance_plot)
+                _save_confusion_plot(
+                    confusions[selected_name],
+                    confusion_plot,
+                    f"Confusion Matrix ({selected_name})",
+                )
+                print(f"[PLOT] {comparison_plot}")
+                print(f"[PLOT] {importance_plot}")
+                print(f"[PLOT] {confusion_plot}")
 
-    results_df.to_csv(metrics_csv, index_label="model")
-    results_df[["focused_recall", "zoned_out_recall"]].to_csv(recalls_csv, index_label="model")
-    feature_imp_df.to_csv(top_feat_csv, index=False)
-    channel_imp_df.to_csv(channel_csv, index=False)
-
-    report_payload = {
-        "selected_model": selected_name,
-        "save_model_by": save_model_by,
-        "best_performance_model": best_perf_name,
-        "best_utilization_model": best_util_name,
-        "cv_strategy": cv_name,
-        "sessions": used_sessions,
-        "feature_matrix_shape": [int(X.shape[0]), int(X.shape[1])],
-        "label_distribution": {
-            "focused": int(np.sum(y == 0)),
-            "zoned_out": int(np.sum(y == 1)),
-        },
-        "selected_model_class_behavior": {
-            "focused_recall": focus_rec,
-            "zoned_out_recall": zoned_rec,
-            "better_at": better_class,
-        },
-        "top_features": feature_imp_df.head(20).to_dict(orient="records"),
-        "top_channels": channel_imp_df.head(8).to_dict(orient="records"),
-        "model_metrics": json.loads(results_df.to_json(orient="index")),
-        "best_model_confusion_matrix": confusions[selected_name].tolist(),
-        "selected_model_classification_report": class_reports[selected_name],
-    }
-
-    with open(report_json_path, "w", encoding="utf-8") as f:
-        json.dump(report_payload, f, indent=2)
-
-    if plot:
-        _save_model_comparison_plot(results_df, comparison_plot)
-        _save_importance_plot(feature_imp_df, channel_imp_df, importance_plot)
-        _save_confusion_plot(
-            confusions[selected_name],
-            confusion_plot,
-            f"Confusion Matrix ({selected_name})",
-        )
-        print(f"[PLOT] {comparison_plot}")
-        print(f"[PLOT] {importance_plot}")
-        print(f"[PLOT] {confusion_plot}")
-
-    print(f"[REPORT] {metrics_csv}")
-    print(f"[REPORT] {recalls_csv}")
-    print(f"[REPORT] {top_feat_csv}")
-    print(f"[REPORT] {channel_csv}")
-    print(f"[REPORT] {report_json_path}")
+            print(f"[REPORT] {metrics_csv}")
+            print(f"[REPORT] {recalls_csv}")
+            print(f"[REPORT] {top_feat_csv}")
+            print(f"[REPORT] {channel_csv}")
+            print(f"[REPORT] {report_json_path}")
 
 
 if __name__ == "__main__":
@@ -929,6 +934,7 @@ if __name__ == "__main__":
         default="cache",
         help="Directory for CSV/JSON/plot outputs",
     )
+    parser.add_argument("--cache", action="store_true", help="Persist model/report artifacts")
     parser.add_argument("--no_plot", action="store_true", help="Skip saving plots")
     parser.add_argument("--no_tune", action="store_true", help="Skip hyperparameter tuning")
     parser.add_argument(
@@ -941,8 +947,8 @@ if __name__ == "__main__":
 
     train(
         data_dir=args.data_dir,
-        model_out_path=args.out_model,
-        report_dir=args.report_dir,
+        model_out_path=args.out_model if args.cache else None,
+        report_dir=args.report_dir if args.cache else None,
         plot=not args.no_plot,
         data_root=args.data_root,
         tune_hyperparams=not args.no_tune,
