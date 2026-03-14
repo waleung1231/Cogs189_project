@@ -48,6 +48,9 @@ from sklearn.metrics import (
     balanced_accuracy_score,
     classification_report,
     confusion_matrix,
+    roc_curve, 
+    auc, 
+    precision_recall_curve
 )
 from sklearn.model_selection import (
     LeaveOneGroupOut,
@@ -709,6 +712,50 @@ def _save_importance_plot(feature_importance_df, channel_importance_df, out_path
     plt.savefig(out_path, dpi=140)
     plt.close(fig)
 
+def _save_roc_pr_curves(models, X, y, cv, cv_groups, out_path):
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    ax_roc = axes[0]
+    ax_pr = axes[1]
+
+    for name, model in models.items():
+
+        # OOF probability predictions
+        y_prob = cross_val_predict(
+            model,
+            X,
+            y,
+            cv=cv,
+            groups=cv_groups,
+            method="predict_proba",
+            n_jobs=-1,
+        )[:, 1]
+
+        # ROC
+        fpr, tpr, _ = roc_curve(y, y_prob)
+        roc_auc = auc(fpr, tpr)
+        ax_roc.plot(fpr, tpr, label=f"{name} (AUC={roc_auc:.2f})")
+
+        # Precision-Recall
+        precision, recall, _ = precision_recall_curve(y, y_prob)
+        ax_pr.plot(recall, precision, label=name)
+
+    ax_roc.plot([0, 1], [0, 1], linestyle="--", color="gray")
+    ax_roc.set_xlabel("False Positive Rate")
+    ax_roc.set_ylabel("True Positive Rate")
+    ax_roc.set_title("ROC Curve")
+    ax_roc.legend()
+
+    ax_pr.set_xlabel("Recall")
+    ax_pr.set_ylabel("Precision")
+    ax_pr.set_title("Precision-Recall Curve")
+    ax_pr.legend()
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=140)
+    plt.close(fig)
+
+
 
 # ------------------------------------------------------------
 # Training orchestration
@@ -860,6 +907,7 @@ def train(
             comparison_plot = os.path.join(report_dir, "model_comparison.png")
             importance_plot = os.path.join(report_dir, "feature_importance.png")
             confusion_plot = os.path.join(report_dir, "best_model_confusion.png")
+            roc_pr_plot = os.path.join(report_dir, "roc_pr_curves.png")
 
             results_df.to_csv(metrics_csv, index_label="model")
             results_df[["focused_recall", "zoned_out_recall"]].to_csv(recalls_csv, index_label="model")
@@ -901,10 +949,12 @@ def train(
                     confusion_plot,
                     f"Confusion Matrix ({selected_name})",
                 )
+                _save_roc_pr_curves(fitted_models, X, y, cv, cv_groups, roc_pr_plot)
+                
                 print(f"[PLOT] {comparison_plot}")
                 print(f"[PLOT] {importance_plot}")
                 print(f"[PLOT] {confusion_plot}")
-
+                print(f"[PLOT] {roc_pr_plot}")
             print(f"[REPORT] {metrics_csv}")
             print(f"[REPORT] {recalls_csv}")
             print(f"[REPORT] {top_feat_csv}")
